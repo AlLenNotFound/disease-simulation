@@ -39,15 +39,30 @@ constexpr double DT = 0.1;         // Time step
 constexpr int NUM_STEPS = 100;     // Number of simulation steps
 constexpr int NUM_BLOCKS = 10;     // Number of blocks to divide states into
 constexpr double NEIGHBOR_INFLUENCE = 0.3;  // How much neighboring states influence infection
-
+/*
 // Function to calculate distance between two geographic points (in degrees)
 double calcDistance(double lat1, double lon1, double lat2, double lon2) {
     return std::sqrt(std::pow(lat2 - lat1, 2) + std::pow(lon2 - lon1, 2));
-}
+}*/
+//For better accuracy in calculating distances (especially considering the Earth's curvature), I suggested using the Haversine formula to calculate the distance between two points based on their latitude and longitude.
+//The Haversine formula is more accurate for distances on a spherical Earth:
 
+double calcDistance(double lat1, double lon1, double lat2, double lon2) {
+    double R = 6371; // Earth's radius in km
+    double dLat = (lat2 - lat1) * M_PI / 180.0;
+    double dLon = (lon2 - lon1) * M_PI / 180.0;
+
+    lat1 = lat1 * M_PI / 180.0;
+    lat2 = lat2 * M_PI / 180.0;
+
+    double a = sin(dLat / 2) * sin(dLat / 2) +
+               cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return R * c;
+}
 // Function to group states into blocks using a simple clustering approach
-std::vector<Block> groupStatesIntoBlocks(const std::vector<State>& states, int numBlocks) {
-    // Simple K-means clustering for blocks
+std::vector<Block> groupStatesIntoBlocks(std::vector<State>& states, int numBlocks) {
     std::vector<Block> blocks(numBlocks);
     
     // Initialize with random centers
@@ -57,58 +72,73 @@ std::vector<Block> groupStatesIntoBlocks(const std::vector<State>& states, int n
         blocks[i].centerLat = states[randIdx].lat;
         blocks[i].centerLon = states[randIdx].lon;
     }
-    
-    // Assign states to closest block
+
     bool changed = true;
-    while (changed) {
+    int maxIterations = 100;
+    int iteration = 0;
+
+    while (changed && iteration < maxIterations) {
         changed = false;
-        
+        iteration++;
+
         // Clear previous assignments
         for (auto& block : blocks) {
             block.stateIndices.clear();
         }
-        
-        // Assign each state to nearest block
+
+        // Assign each state to the nearest block
         for (int i = 0; i < states.size(); i++) {
             double minDist = std::numeric_limits<double>::max();
             int bestBlock = 0;
-            
+
             for (int j = 0; j < numBlocks; j++) {
                 double dist = calcDistance(states[i].lat, states[i].lon, 
-                                        blocks[j].centerLat, blocks[j].centerLon);
+                                           blocks[j].centerLat, blocks[j].centerLon);
                 if (dist < minDist) {
                     minDist = dist;
                     bestBlock = j;
                 }
             }
-            
+
             blocks[bestBlock].stateIndices.push_back(i);
         }
-        
+
         // Recalculate centers
         for (int i = 0; i < numBlocks; i++) {
             if (blocks[i].stateIndices.empty()) continue;
-            
+
             double sumLat = 0, sumLon = 0;
             for (int stateIdx : blocks[i].stateIndices) {
                 sumLat += states[stateIdx].lat;
                 sumLon += states[stateIdx].lon;
             }
-            
+
             double newCenterLat = sumLat / blocks[i].stateIndices.size();
             double newCenterLon = sumLon / blocks[i].stateIndices.size();
-            
-            // Check if center has moved significantly
+
             if (std::abs(newCenterLat - blocks[i].centerLat) > 0.001 || 
                 std::abs(newCenterLon - blocks[i].centerLon) > 0.001) {
                 changed = true;
             }
-            
+
             blocks[i].centerLat = newCenterLat;
             blocks[i].centerLon = newCenterLon;
         }
     }
-    
+
+    // ✅ Assign Block IDs to States
+    for (int i = 0; i < numBlocks; i++) {
+        for (int stateIdx : blocks[i].stateIndices) {
+            states[stateIdx].blockID = i;
+        }
+    }
+
+    // ✅ Debug: Print assigned block IDs
+    std::cout << "Final State Assignments:\n";
+    for (const auto& state : states) {
+        std::cout << "State " << state.name << " assigned to Block " << state.blockID << "\n";
+    }
+
     return blocks;
 }
 
